@@ -60,15 +60,11 @@ RV1805 rtc;
 //************************* initialize variables******************************
 uint32_t tagNo;                    //four least significant hexidecimals in 5 number tag code
 uint32_t tagNo2;                   //four least significant hexidecimals in 5 number tag code
-uint32_t tagNoA;                   //four least significant hexidecimals in 5 number tag code - used for comparisons associated with RFID circuit 1 and delayTime
-uint32_t pastWrite;                //for the millisecond counter and use with delayTime
 uint32_t timeSeconds;                   //stores the past Hour, Minute and Second of a read 
 uint32_t pastTimeSeconds;               //stores the past Hour, Minute and Second of a read 
 
-byte flashArray[528];              //Large array of 528 bytes for writing a full page to onboard flash memory
-byte tagCount;                     //keeps track of number of stored tags
-byte byte0;                        //general purpose reusable variable
-long long0;                        //general purpose reusable variable
+//byte flashArray[528];              //Large array of 528 bytes for writing a full page to onboard flash memory
+//byte tagCount;                     //keeps track of number of stored tags
 unsigned int pageAddress;          //page address for flash memory
 unsigned int byteAddress;          //byte address for flash memory
 union flashMem {                   //Union variable for constructing instructions to flash memory
@@ -78,29 +74,27 @@ union flashMem {                   //Union variable for constructing instruction
 
 byte match;                       // used to determine if tags match.
 byte RFcircuit = 1;               //Used to determine which RFID circuit is active. 1 = primary circuit, 2 = secondary circuit.
-byte pastCircuit;
+byte pastCircuit;                 //Used to keep track of where (which RF circuit) a tag was last read
 byte ss, mm, hh, da, mo, yr;          //Byte variables for storing date/time elements
 String sss, mms, hhs, das, mos, yrs;  //String variable for storing date/time text elements
-String currentDate; //Get the current date in mm/dd/yyyy format (we're weird in the US)
-String currentTime; //Get the time
-String currentDateTime;
+String currentDate;                   //USed to get the current date in mm/dd/yyyy format (we're weird in the US)
+String currentTime;                   //Used to get the time
+String currentDateTime;               //Full date and time string
 String timeString;                    //String for storing the whole date/time line of data
 char incomingByte = 0;                 //Used for incoming serial data
 unsigned int timeIn[12];              //Used for incoming serial data during clock setting
-byte menu;
-char feedMode;
+byte menu;                            //Keeps track of whether the menu is active.        
 
 //tag reading state variables
-byte longPulseDetected = 0;
-byte pastPulseLong = 0;
-byte RFIDbitCounter;
-byte RFIDbyteCounter;
-byte RFIDbytes[11];
-byte paritybits[6];
-byte OneCounter;      //count number of consecutive 1s
-unsigned int pulseCount;
-unsigned int parityFail;
-byte rParity;
+byte longPulseDetected = 0;           //A long pulse must first be read from the RFID output to begin reading a tag ID - This variable indicates whether a long pulse has happened
+byte pastPulseLong = 0;               //Indicates whether the past pulse was long (1) or short (0).
+byte RFIDbitCounter;                  //Counts the number of bits that have gone into an RFID tag read
+byte RFIDbyteCounter;                 //Counts the number of bytes that have gone into an RFID tag read
+byte RFIDbytes[11];                   //Array of bytes for storing all RFID tag data (ID code and parity bits)
+byte OneCounter;                      //For counting the number of consecutive 1s in RFID input -- 9 ones signals the beginning of an ID code
+unsigned int pulseCount;              //For counting pulses from RFID reader
+unsigned int parityFail;              //Indicates if there was a parity mismatch (i.e. a failed read)
+byte rParity;                         //temporary storage of parity data.
 
 //Global variable for tag codes
 String RFIDstring;                 //Stores the TagID as a 10 character string
@@ -109,10 +103,10 @@ unsigned long RFIDtagNumber = 0;   //Stores bytes 1 through 4 of a tag ID (user 
 byte RFIDtagArray[5];              //Stores the five individual bytes of a tag ID.
 
 //********************CONSTANTS (SET UP LOGGING PARAMETERS HERE!!)*******************************
-const byte checkTime = 30;                //How long in milliseconds to check to see if a tag is present 
-const unsigned int pollTime1 = 200;       //How long in milliseconds to try to read a tag on circuit 1 if a tag was initially detected
+const byte checkTime = 30;                //How long in milliseconds to check to see if a tag is present (Tag is only partially read during this time -- This is just a quick way of detirmining if a tag is present or not
+const unsigned int pollTime1 = 200;       //How long in milliseconds to try to read a tag if a tag was initially detected (applies to both RF circuits, but that can be changed)
 const unsigned int delayTime = 8;         //Minimim time in seconds between recording the same tag twice in a row (only applies to data logging--other operations are unaffected)
-const unsigned long pauseTime = 1000;      //How long in milliseconds to wait between polling intervals
+const unsigned long pauseTime = 500;      //CRITICAL - This determines how long in milliseconds to wait between reading attempts. Make this wait time as long as you can and still maintain functionality (more pauseTime = more power saved)
 
 const byte slpH = 21;                            //When to go to sleep at night - hour
 const byte slpM = 00;                            //When to go to sleep at night - minute
@@ -123,10 +117,16 @@ const unsigned int onTime = 1000;                //how man MILLISECONDS to stay 
 const unsigned int slpTime = slpH * 100 + slpM;  //Combined hours and minutes for sleep time
 const unsigned int wakTime = wakH * 100 + wakM;  //Combined hours and minutes for wake time
 
-unsigned int cycleCount = 0;                     //counts read cycles 
+//The reader will output Serial data for a certain number of read cycles; then it will start using a low power
+//sleep mode during the pauseTime between read attempts. The variable stopCycleCount determines how many read cycles 
+//to go through before using the low-power sleep. Once low-powe sleep is enabled, the reader will not be able to output
+//serial data (but tag reading and data storage will still work). 
+
+unsigned int cycleCount = 0;                    //counts read cycles 
 unsigned int stopCycleCount = 50;               //How many read cycles to maintain serial comminications
+
 byte SDpresent;                                 //1 if SD card is detected on startup.
-byte doorState = 1;                              //Status of the motorized door. 0 = open, 1 = closed.
+byte doorState = 1;                             //Status of the motorized door. 0 = open, 1 = closed.
 byte readFlashByte(unsigned long fAddress);
 void writeFlashByte(unsigned long fAddress, byte fByte);
 unsigned long getFlashAddr();
@@ -208,7 +208,7 @@ void setup() {  // This function sets everything up for logging.
   unsigned long fAddressEnd2 = getFlashAddr();                       // get flash address
   fAddressEnd2 = getFlashAddr();                                     // get flash address; has to be done twice?? why??
   serial.print("checking if Flash Memory is initialized: ");         //It is neccessary to initialize the flash memory on the first startup
-  byte0 = readFlashByte(0x00000404);                                 //Read a particular byte from the flash memory
+  byte byte0 = readFlashByte(0x00000404);                                 //Read a particular byte from the flash memory
   serial.println(byte0, HEX);                                        //Display the byte
   if (byte0 == 0xFF) {                                               //If the byte is 0xFF then the flash memory needs to be initialized
     writeFlashByte(0x00000404, 0xAA);                                //Write a different byte to this memory location
@@ -218,17 +218,6 @@ void setup() {  // This function sets everything up for logging.
   serial.println("Flash Memory IS initialized.");                    //Confirm initialization
   getFlashAddr();                                                    //Display the current flash memory data loggin address
   //writeFlashByte(0x00000404, 0xFF);                                //Uncomment to set flash memory initialization flag to 0xFF, which will cause the memory address to be reset on startup
-  //Transfer tag data from the SD card to the flash memory
-  //  transferTags();                                                    //Transfer tag data to Flash memory
-  //  serial.print("Number of tags transferred: ");                      //Message part 1
-  //  serial.println(tagCount, DEC);                                     //Message part 2: how many Tag IDs were read in
-
-//  //Initialize motorized door
-//  serial.print("Initializing motor....");  //Message to user
-//  motInit();                               //Function that allows the door system to recognize its current position and move to the closed position
-//  feedMode = getMode();                    //Get the feeder mode stored in the flash memory.
-//  serial.print("Current feed mode: ");     //Display feeder mode
-//  serial.println(feedMode);
 
   //Display options menu to user
   menu = 1;
