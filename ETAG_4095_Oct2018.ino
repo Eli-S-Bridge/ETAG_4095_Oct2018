@@ -263,7 +263,9 @@ void setup() {                    // This function sets everything up for loggin
           }
         case 'E': {
             writeFlashAddr(0x0800); // reinitialize flash memory by setting memory address to byte 0 of page 2
-            getFlashAddr();         // read and show new flash address to confirm
+            unsigned long flashAddr = getFlashAddr();         // read and show new flash address to confirm
+            serial.print("flash address = ");
+            serial.println(flashAddr, BIN);
             break;
             // break out of this option, menu variable still equals 1 so the menu will display again
           }                         
@@ -373,8 +375,8 @@ void loop() {  // This is the main function. It loops (repeats) forever.
     }
   }
 
-  RFcircuit == 1 ? RFcircuit = 2 : RFcircuit = 1;        // uncomment this line to alternate between active RF circuits.
-  // RFcircuit = 1;                                      // uncomment this line to keep the active RF circuit set to 1.
+   RFcircuit == 1 ? RFcircuit = 2 : RFcircuit = 1;        // uncomment this line to alternate between active RF circuits.
+  //RFcircuit = 1;                                      // uncomment this line to keep the active RF circuit set to 1.
 
 
 }// end void loop
@@ -627,16 +629,21 @@ void dumpMem() {
   delay(10);
   unsigned long fAddressEnd = getFlashAddr();   // get flash address
   serial.print("last flash memory address: ");
+  serial.println(fAddressEnd, DEC);
   serial.println(fAddressEnd, BIN);
   // fAddressEnd = 0x00001000;
   unsigned long fAddress = 0x00000800;          // first address for stored data
+  serial.print("first flash memory: ");
+  serial.println(fAddress, DEC); 
+  serial.println(fAddress, BIN); 
+  
   while (fAddress < fAddressEnd) {
-    if (serial.available())
-    {
-      serial.println("User exit");
-      break;
-    }
-
+//    if (serial.available())
+//    {
+//      serial.println("User exit");
+//      break;
+//    }
+    serial.print("starting loop");
     digitalWrite(csFlash, LOW);                 // activate flash chip
     SPI.transfer(0x03);                         // opcode for low freq read
     SPI.transfer(fAddress >> 16);               // write most significant byte of Flash address
