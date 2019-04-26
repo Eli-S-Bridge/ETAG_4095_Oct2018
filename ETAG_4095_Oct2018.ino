@@ -20,6 +20,7 @@
   The onboard flash memory is divided into pages of 528 bytes each. There are probably several thousand pages.
   Page 0 is reserved for RFID tag codes
   Page 1 is reserved for parameters and counters (first four bytes are the current backup memory address)
+    Include 40 bytes for token.
   The rest is for backup memory.
 
   Change log
@@ -126,7 +127,7 @@ const unsigned int wakTime = wakH * 100 + wakM;  // Combined hours and minutes f
  */
 
 unsigned int cycleCount = 0;                     // counts read cycles
-unsigned int stopCycleCount = 50;                // How many read cycles to maintain serial comminications
+unsigned int stopCycleCount = 100;                // How many read cycles to maintain serial comminications
 
 byte SDpresent;                                  // 1 if SD card is detected on startup.
 byte doorState = 1;                              // Status of the motorized door. 0 = open, 1 = closed.
@@ -375,8 +376,8 @@ void loop() {  // This is the main function. It loops (repeats) forever.
     }
   }
 
-   RFcircuit == 1 ? RFcircuit = 2 : RFcircuit = 1;        // uncomment this line to alternate between active RF circuits.
-  //RFcircuit = 1;                                      // uncomment this line to keep the active RF circuit set to 1.
+  // RFcircuit == 1 ? RFcircuit = 2 : RFcircuit = 1;        // uncomment this line to alternate between active RF circuits.
+  RFcircuit = 1;                                      // uncomment this line to keep the active RF circuit set to 1.
 
 
 }// end void loop
@@ -599,7 +600,9 @@ void logRFID_To_SD(String timeString) {
     dataFile.print(",");                        // comma for data delineation
     dataFile.print(RFcircuit);                  // log which antenna was active
     dataFile.print(",");                        // comma for data delineation
-    dataFile.println(timeString);               // log the time
+    dataFile.print(rtc.stringDateUSA());                  // log which antenna was active
+    dataFile.print(" ");   
+    dataFile.println(rtc.stringTime());               // log the time
     dataFile.close();                           // close the file
     serial.println("saved to SD card.");        // serial output message to user
   } // check dataFile is present
@@ -756,7 +759,7 @@ void writeRFID_To_FlashLine() {
   SPI.transfer((fAddress >> 16) & 0xFF);    // write most significant byte of Flash address
   SPI.transfer((fAddress >> 8) & 0xFF);     // second address byte
   SPI.transfer(fAddress & 0xFF);            // third address byte
-  for (int n = 0; n < 6; n++) {             // loop to log the RFID code to the flash
+  for (int n = 0; n < 5; n++) {             // loop to log the RFID code to the flash
     SPI.transfer(RFIDtagArray[n]);
   }
   SPI.transfer(RFcircuit);                  // log which antenna was active
