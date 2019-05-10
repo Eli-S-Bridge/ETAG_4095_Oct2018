@@ -248,6 +248,10 @@ void setup() {                    // This function sets everything up for loggin
     }
     if (serial.available()) {                             // If there is a response then perform the corresponding operation
       incomingByte = serial.read();                       // get the entry from the user
+      serial.print("You entered ");
+      serial.print(incomingByte);
+      serial.print(" ");
+      serial.println(incomingByte, DEC);
       switch (incomingByte) {                             // execute whatever option the user selected
         case 'C': {                                       // option to set clock
             inputTime();                                  // calls function to get time values from user
