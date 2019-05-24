@@ -593,6 +593,8 @@ void blipLED(byte blip) {
 
 
 void logRFID_To_SD(String timeString) {
+  pinMode(SDselect, OUTPUT);       // Chip select pin for SD card must be an output for writing to SD card
+  SD.begin(SDselect);
   File dataFile = SD.open("datalog.txt", FILE_WRITE);        // Initialize the SD card and open the file "datalog.txt" or create it if it is not there.
   if (dataFile) {
     /*for (int n = 0; n < 5; n++) {             // loop to print out the RFID code to the SD card
