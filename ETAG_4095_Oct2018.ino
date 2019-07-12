@@ -1,13 +1,11 @@
 
 /*
   Data logging sketch for the ETAG RFID Reader
-  Version 1.1
+  Version 3.1
   Code by:
-   Alexander Moreno
-   David Mitchell
    Eli Bridge
    Jay Wilhelm
-   May-2018
+   July 2019
 
   Licenced in the public domain
 
@@ -25,6 +23,9 @@
 
   Change log
   5-4-18 - Added interrupt driven RFID reader (jaywilhelm)
+  7-12-19 - Updated for new board definition
+            Changes to SD select pins
+            Makes use of SDon (power to SD card)
 */
 
 // ***********INITIALIZE INCLUDE FILES AND I/O PINS*******************
@@ -41,16 +42,16 @@
 #define SHD_PINB         9   // (PA07) Setting this pin high activates the seconday RFID circuit (only one can be active at a time)
 #define MOD_PIN          0   // not used - defined as zero
 #define READY_CLOCK_PIN  0   // not used - defined as zero
-#define SDselect         7   // Chip select for SD card - make this pin low to activate the SD card, also the clock interupt pin
+#define SDselect         44   // (PA21) Chip select for SD card - make this pin low to activate the SD card. Maps to same pin used for clock interupt pin
+#define SDon            32    //(PA28) Controls mosfet to shut off power to SD card
 #define csFlash         2    // Chip select for flash memory
 #define LED_RFID        31   // Pin to control the LED indicator.
-#define interruptPin    7
-#define MOTPWM          0    // motor pulse width
+#define MOTPWM          0    // motor pulse width - only used with motorized feeders.
 #define MOTL            1    // motor left
 #define MOTR            2    // motor right
 #define mStby           3    // motor controller standby
 #define mSwitch         4    // motor switch
-#define INT1            7
+#define INT1            43   // (PA21) Clock interrupt input. Maps to same pin as SDselect
 
 // ManchesterDecoder gManDecoder1(DEMOD_OUT_PIN, SHD_PINA, ManchesterDecoder::EM4095, CollectedBitMinCount);
 // ManchesterDecoder gManDecoder2(DEMOD_OUT_PIN, SHD_PINB, ManchesterDecoder::EM4095, CollectedBitMinCount);
@@ -127,7 +128,7 @@ const unsigned int wakTime = wakH * 100 + wakM;  // Combined hours and minutes f
  */
 
 unsigned int cycleCount = 0;                     // counts read cycles
-unsigned int stopCycleCount = 100;                // How many read cycles to maintain serial comminications
+unsigned int stopCycleCount = 10;                // How many read cycles to maintain serial comminications
 
 byte SDpresent;                                  // 1 if SD card is detected on startup.
 byte doorState = 1;                              // Status of the motorized door. 0 = open, 1 = closed.
@@ -149,14 +150,21 @@ void setup() {                    // This function sets everything up for loggin
   digitalWrite(LED_RFID, HIGH);   // turn the LED off (LOW turns it on)
 
   // SD card and flash memory chip select pins - these pins enable SPI communication with these peripherals
+  pinMode(SDon, OUTPUT);          // Constrols mosfet power switch to SD card
   pinMode(SDselect, OUTPUT);      // Chip select pin for SD card must be an output
   pinMode(csFlash, OUTPUT);       // Chip select pin for Flash memory
+  digitalWrite(SDon, LOW);        // Set low to turn SD card on
   digitalWrite(SDselect, HIGH);   // Make both chip selects high (not selected)
   digitalWrite(csFlash, HIGH);
   // gManDecoder1.DisableMonitoring();
   // gManDecoder2.DisableMonitoring();
 
   // Pins for controlling the RFID circuits
+  pinMode(SHD_PINA, OUTPUT);      // Make the primary RFID shutdown pin an output.
+  digitalWrite(SHD_PINA, HIGH);   // turn the primary RFID circuit off (LOW turns on the EM4095)
+  pinMode(SHD_PINB, OUTPUT);      // Make the secondary RFID shutdown pin an output.
+  digitalWrite(SHD_PINB, HIGH);   // turn the secondary RFID circuit off (LOW turns on the EM4095)
+  
   pinMode(SHD_PINA, OUTPUT);      // Make the primary RFID shutdown pin an output.
   digitalWrite(SHD_PINA, HIGH);   // turn the primary RFID circuit off (LOW turns on the EM4095)
   pinMode(SHD_PINB, OUTPUT);      // Make the secondary RFID shutdown pin an output.
@@ -289,7 +297,7 @@ void setup() {                    // This function sets everything up for loggin
   // Prepare for data logging
   RFcircuit = 1;                            // Indicates that the reader should start with the primary RFID circuit
   serial.println("Scanning for tags...\n"); // message to user
-
+  digitalWrite(SDon, HIGH);                 // turn off SD card
 }                                           // end void setup
 
 // ******************************MAIN PROGRAM*******************************
@@ -366,22 +374,23 @@ void loop() {  // This is the main function. It loops (repeats) forever.
     delay(pauseTime);                  // pause between polling attempts
   } else {
     byte pauseInterval = (pauseTime * 64)/1000;
-    serial.print("pause interval: ");
-    serial.println(pauseInterval, DEC);
+    //serial.print("pause interval: ");
+    //serial.println(pauseInterval, DEC);
     rtc.setRptTimer(pauseInterval, 1); // set timer and use frequency of 64 Hz
     pinMode(SDselect, INPUT);          // make the SD card pin an input so it can serve as interrupt pin
     rtc.startTimer();                  // start the timer
     lpSleep();                         // call sleep funciton
-    // blipLED(30);                    // blink indicator - processor reawakened
+    //blipLED(10);                    // blink indicator - processor reawakened
     rtc.stopTimer();
     if(SDpresent == 1){
+      digitalWrite(SDon, LOW);                 // turn on SD card
       pinMode(SDselect, OUTPUT);       // Chip select pin for SD card must be an output for writing to SD card
       SD.begin(SDselect);
     }
   }
 
-  // RFcircuit == 1 ? RFcircuit = 2 : RFcircuit = 1;        // uncomment this line to alternate between active RF circuits.
-  RFcircuit = 1;                                      // uncomment this line to keep the active RF circuit set to 1.
+  RFcircuit == 1 ? RFcircuit = 2 : RFcircuit = 1;        // uncomment this line to alternate between active RF circuits.
+  //RFcircuit = 1;                                      // uncomment this line to keep the active RF circuit set to 1.
 
 
 }// end void loop
@@ -593,6 +602,7 @@ void blipLED(byte blip) {
 
 
 void logRFID_To_SD(String timeString) {
+  digitalWrite(SDon, LOW);        // Set low to turn SD card on
   pinMode(SDselect, OUTPUT);       // Chip select pin for SD card must be an output for writing to SD card
   SD.begin(SDselect);
   File dataFile = SD.open("datalog.txt", FILE_WRITE);        // Initialize the SD card and open the file "datalog.txt" or create it if it is not there.
@@ -615,6 +625,9 @@ void logRFID_To_SD(String timeString) {
   else {
     serial.println("error opening datalog.txt");// error message if the "datafile.txt" is not present or cannot be created
   }// end check for file
+  SD.end();
+  digitalWrite(SDselect, HIGH);    // Make sure chip select for SD card is disengaged (high)
+  digitalWrite(SDon, HIGH);        // Set high to turn SD card off
 }
 
 
@@ -875,6 +888,9 @@ void printDirectory(File dir, int numTabs) {
 
 
 void saveLogSD(String event) { // Save log to log file in SD card
+  digitalWrite(SDon, LOW);        // Set low to turn SD card on
+  pinMode(SDselect, OUTPUT);       // Chip select pin for SD card must be an output for writing to SD card
+  SD.begin(SDselect);
   File dataFile = SD.open("log.txt", FILE_WRITE);       // Initialize the SD card and open the file "datalog.txt" or create it if it is not there.
   if (dataFile) {
     dataFile.print(event);
@@ -893,6 +909,9 @@ void saveLogSD(String event) { // Save log to log file in SD card
   else {
     serial.println("error opening log.txt");            // error message if the "datafile.txt" is not present or cannot be created
   }// end check for file
+  SD.end();
+  digitalWrite(SDselect, HIGH);    // Make sure chip select for SD card is disengaged (high)
+  digitalWrite(SDon, HIGH);        // Set high to turn SD card off
 }
 
 void lpSleep() {
